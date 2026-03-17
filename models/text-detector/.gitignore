@@ -1,0 +1,8 @@
+yolo11-training/datasets/
+yolo11-training/runs/
+yolo11-training/003.jpg
+yolo11-training/dog.jpeg
+yolo11-training/yolo11n.pt
+yolo11-training/yolo11s.pt
+yolo11-training/yolo11s_manga_finetune.pt
+comic-text-segmenter.pt
