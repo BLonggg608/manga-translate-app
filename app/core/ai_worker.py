@@ -2,15 +2,13 @@ import os
 import sys
 import re
 import gc
+import shutil
 from PySide6.QtCore import QThread, Signal
 
 HOME = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(HOME) 
 
-from helper_func import filter_mask_by_boxes, manga_sort_boxes, get_system_prompt, create_user_payload, parse_json_output, render_text_on_manga
-
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+from helper_func import natural_sort_key, filter_mask_by_boxes, manga_sort_boxes, get_system_prompt, create_user_payload, parse_json_output, render_text_on_manga
 
 class ModelLoaderWorker(QThread):
     progress_updated = Signal(int, str)
@@ -23,8 +21,6 @@ class ModelLoaderWorker(QThread):
 
     def run(self):
         try:
-            # CRITICAL FIX: Isolate the GPU BEFORE importing PyTorch.
-            # This makes the selected physical GPU become the logical 'cuda:0' for this process.
             if self.gpu_id != "-1":
                 os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu_id
             else:
@@ -68,7 +64,6 @@ class ModelLoaderWorker(QThread):
                 bnb_4bit_use_double_quant=True
             )
             
-            # Use 'auto' because the isolated GPU is now the only one available
             translator_model = AutoModelForCausalLM.from_pretrained(
                 translate_model_path, 
                 quantization_config=bnb_config, 
@@ -99,6 +94,7 @@ class ModelLoaderWorker(QThread):
 
 class AITranslatorWorker(QThread):
     progress_updated = Signal(int, str)
+    image_translated = Signal(str) # NEW SIGNAL: Emits the path of the newly translated image
     finished = Signal(str)
     error_occurred = Signal(str)
     cancelled = Signal(str) 
@@ -136,28 +132,27 @@ class AITranslatorWorker(QThread):
             simple_lama = self.models['simple_lama']
             font_path = self.models['font_path']
 
-            input_dir = self.config['input_dir']
-            output_dir = self.config['output_dir']
-            valid_ext = ('.jpg', '.jpeg', '.png', '.webp')
-            images = [f for f in os.listdir(input_dir) if f.lower().endswith(valid_ext)]
-            images.sort(key=natural_sort_key)
+            image_paths = self.config['image_paths']
+            # sort image paths based on filename to ensure correct page order
+            image_paths.sort(key=lambda x: natural_sort_key(os.path.basename(x)))
+            
+            # Prepare Temporary Cache Directory
+            temp_dir = os.path.join(HOME, "temp_translation_cache")
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            os.makedirs(temp_dir, exist_ok=True)
 
-            os.makedirs(output_dir, exist_ok=True)
-            run_dir = os.path.join(output_dir, f'run_{len(os.listdir(output_dir)) + 1}')
-            os.makedirs(run_dir, exist_ok=True)
-
-            total_imgs = len(images)
+            total_imgs = len(image_paths)
             previous_translation_text = None
 
-            for idx, img_name in enumerate(images):
+            for idx, img_path in enumerate(image_paths):
                 if self.check_cancel_and_cleanup("Translation process stopped at image start."): return
 
+                img_name = os.path.basename(img_path)
                 base_percent = int((idx / total_imgs) * 100)
-                img_path = os.path.join(input_dir, img_name)
                 
                 self.progress_updated.emit(base_percent + 2, f"[{idx+1}/{total_imgs}] Detecting text bubbles: {img_name}")
                 
-                # Default logic now routes safely to logical cuda:0
                 detector.to('cuda')
                 segmenter.model.to('cuda')
                 mocr.model.to('cuda')
@@ -239,15 +234,19 @@ class AITranslatorWorker(QThread):
                 except Exception as e:
                     result_img = cleared_image
 
-                save_path = os.path.join(run_dir, img_name)
+                # Save to Temporary Cache Directory
+                save_path = os.path.join(temp_dir, img_name)
                 result_img.save(save_path)
+                
+                # Emit the path of the saved image back to the UI
+                self.image_translated.emit(save_path)
                 
                 del cleared_image, result_img
                 gc.collect()
 
             if not self._is_cancelled:
                 self.progress_updated.emit(100, "100% Completed!")
-                self.finished.emit(f"Translation successful! Results saved at:\n{run_dir}")
+                self.finished.emit("Translation completed. Please review the previews and click Save.")
 
         except Exception as e:
             self.error_occurred.emit(f"SYSTEM ERROR: {str(e)}")

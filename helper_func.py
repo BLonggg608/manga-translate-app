@@ -403,3 +403,7 @@ def render_text_on_manga(cleared_image, bboxes, translated_texts, font_path=None
             current_y += line_height
 
     return image
+
+def natural_sort_key(s):
+    # sort files properly (1, 2, 3... 10) instead of (1, 10, 2)
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
