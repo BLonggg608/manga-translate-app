@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QComboBox, QLineEdit, QFileDialog, 
                                QProgressBar, QMessageBox, QApplication, QScrollArea, QDialog)
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 
 from app.core.ai_worker import ModelLoaderWorker, AITranslatorWorker
 
@@ -166,9 +166,9 @@ class ClickableThumbnail(QWidget):
                 font-weight: bold;
                 font-size: 14px;
                 border: none;
-                padding: 0px;          /* QUAN TRỌNG: Ép lề trong về 0 để lộ chữ X */
-                text-align: center;    /* QUAN TRỌNG: Căn giữa chữ X tuyệt đối */
-                padding-bottom: 2px;   /* Mẹo nhỏ: Đẩy chữ X lên một chút xíu để nhìn ngay chính giữa theo chiều dọc */
+                padding: 0px;
+                text-align: center;
+                padding-bottom: 2px;
             }
             QPushButton:hover {
                 background-color: rgba(230, 69, 83, 1.0);
@@ -192,6 +192,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Manga Translator Pro")
         self.setMinimumSize(800, 650) 
+
+        if getattr(sys, 'frozen', False):
+            app_root = os.path.dirname(sys.executable)
+        else:
+            app_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        icon_path = os.path.join(app_root, "assets", "images", "favicon.ico")
+        self.setWindowIcon(QIcon(icon_path))
         
         self.worker = None
         self.loader_worker = None
@@ -246,7 +254,7 @@ class MainWindow(QMainWindow):
         # --- Row 3: GPU Selection ---
         gpu_layout = QHBoxLayout()
         self.gpu_combo = QComboBox()
-        gpu_layout.addWidget(QLabel("AI Device (GPU):"))
+        gpu_layout.addWidget(QLabel("Device (GPU):"))
         gpu_layout.addWidget(self.gpu_combo)
         layout.addLayout(gpu_layout)
 

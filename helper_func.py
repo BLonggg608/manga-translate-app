@@ -1,3 +1,5 @@
+import sys
+import os
 import json
 import re
 import cv2
@@ -403,6 +405,7 @@ def render_text_on_manga(cleared_image, bboxes, translated_texts, font_path=None
             current_y += line_height
 
     return image
+
 
 def natural_sort_key(s):
     # sort files properly (1, 2, 3... 10) instead of (1, 10, 2)

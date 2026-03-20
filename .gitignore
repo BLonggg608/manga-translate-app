@@ -3,3 +3,5 @@ __pycache__/
 .env
 output/
 temp_translation_cache/
+build/
+dist/

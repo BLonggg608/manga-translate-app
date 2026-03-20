@@ -5,8 +5,21 @@ import gc
 import shutil
 from PySide6.QtCore import QThread, Signal
 
-HOME = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+def get_app_root():
+    if getattr(sys, 'frozen', False):
+        # When run as a .exe
+        return os.path.dirname(sys.executable)
+    else:
+        # When run as a .py
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+HOME = get_app_root()
 sys.path.append(HOME) 
+
+# # Ensure the manga-ocr model directory is in the path for imports
+local_manga_ocr_path = os.path.normpath(os.path.join(HOME, 'models', 'text_ocr'))
+if local_manga_ocr_path not in sys.path:
+    sys.path.insert(0, local_manga_ocr_path)
 
 from helper_func import natural_sort_key, filter_mask_by_boxes, manga_sort_boxes, get_system_prompt, create_user_payload, parse_json_output, render_text_on_manga
 
@@ -27,7 +40,9 @@ class ModelLoaderWorker(QThread):
                 os.environ['CUDA_VISIBLE_DEVICES'] = "-1"
                 
             os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
-            os.environ['LAMA_MODEL'] = f"{HOME}/models/simple-lama-inpainting/anime-manga-big-lama.pt"
+            
+            lama_path = os.path.join(HOME, "models", "simple-lama-inpainting", "anime-manga-big-lama.pt").replace('\\', '/')
+            os.environ['LAMA_MODEL'] = lama_path
 
             self.progress_updated.emit(5, "Initializing PyTorch Environment...")
             
@@ -38,10 +53,24 @@ class ModelLoaderWorker(QThread):
             from manga_ocr import MangaOcr
             from ultralytics import YOLO
 
-            yolov8s_model_path = f'{HOME}/models/text-detector/comic-text-segmenter.pt'
-            ocr_model_path = f"{HOME}/models/manga-ocr/models/manga-ocr-base"
-            translate_model_path = f"{HOME}/models/translate-model/models/tiger-gemma-9b-v3"
-            segment_model_path = f'{HOME}/models/text_segmentation/model.pth'
+            yolov8s_model_path = os.path.join(HOME, 'models', 'text-detector', 'comic-text-segmenter.pt').replace('\\', '/')
+            ocr_model_path = os.path.join(HOME, 'models', 'text_ocr', 'models', 'manga-ocr-base').replace('\\', '/')
+            translate_model_path = os.path.join(HOME, 'models', 'translate-model', 'models', 'tiger-gemma-9b-v3').replace('\\', '/')
+            segment_model_path = os.path.join(HOME, 'models', 'text_segmentation', 'model.pth').replace('\\', '/')
+            font_path = os.path.join(HOME, 'assets', 'fonts', 'animeace2_viethoa_reg.ttf').replace('\\', '/')
+
+            # check if all model files exist before proceeding
+            check_paths = [
+                (yolov8s_model_path, "YOLOv8 Text Detector"),
+                (ocr_model_path, "Manga OCR (Base Directory)"),
+                (translate_model_path, "Gemma LLM (Tiger Directory)"),
+                (segment_model_path, "Text Segmenter"),
+                (font_path, "Font File")
+            ]
+
+            for p, name in check_paths:
+                if not os.path.exists(p):
+                    raise FileNotFoundError(f"PATH ERROR: Could not find {name}!\nAttempted path: \n{p}\n\nPlease verify your directory structure in the build folder.")
 
             self.progress_updated.emit(15, "Loading Text Detector (YOLO)...")
             detector = YOLO(yolov8s_model_path)
@@ -69,7 +98,7 @@ class ModelLoaderWorker(QThread):
                 quantization_config=bnb_config, 
                 device_map="auto", 
                 trust_remote_code=False, 
-                torch_dtype=compute_dtype
+                dtype=compute_dtype
             )
 
             self.progress_updated.emit(90, "Loading Inpainting Model (Lama)...")
@@ -82,7 +111,7 @@ class ModelLoaderWorker(QThread):
                 'translator_tokenizer': translator_tokenizer,
                 'translator_model': translator_model,
                 'simple_lama': simple_lama,
-                'font_path': f'{HOME}/assets/fonts/animeace2_viethoa_reg.ttf'
+                'font_path': font_path
             }
 
             self.progress_updated.emit(100, "All models loaded successfully.")
