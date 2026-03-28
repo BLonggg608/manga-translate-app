@@ -190,7 +190,7 @@ class ClickableThumbnail(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Manga Translator Pro")
+        self.setWindowTitle("Manga Translator")
         self.setMinimumSize(800, 650) 
 
         if getattr(sys, 'frozen', False):
@@ -212,10 +212,17 @@ class MainWindow(QMainWindow):
         self.translated_images_cache = []
 
         self.startup_gpu = None
-        if "--gpu" in sys.argv:
-            idx = sys.argv.index("--gpu")
-            if idx + 1 < len(sys.argv):
-                self.startup_gpu = sys.argv[idx + 1]
+        self.startup_engine = "Local LLM" # Default engine
+
+        # Parse arguments for GPU and Engine state after restart
+        args = sys.argv
+        if "--gpu" in args:
+            idx = args.index("--gpu")
+            if idx + 1 < len(args): self.startup_gpu = args[idx + 1]
+            
+        if "--engine" in args:
+            idx = args.index("--engine")
+            if idx + 1 < len(args): self.startup_engine = args[idx + 1]
 
         main_widget = QWidget()
         layout = QVBoxLayout()
@@ -251,14 +258,41 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(self.lang_combo)
         layout.addLayout(options_layout)
 
-        # --- Row 3: GPU Selection ---
+        # --- Row 3: Engine Selection ---
+        engine_layout = QHBoxLayout()
+        engine_layout.addWidget(QLabel("Engine:"))
+        
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItems(["Local LLM", "Gemini API"])
+        self.engine_combo.setCurrentText(self.startup_engine)
+        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
+        engine_layout.addWidget(self.engine_combo)
+        
+        engine_layout.addSpacing(20)
+        
+        self.api_key_label = QLabel("API Key:")
+        self.api_key_entry = QLineEdit()
+        self.api_key_entry.setPlaceholderText("Enter Gemini API Key here...")
+        self.api_key_entry.setEchoMode(QLineEdit.Password) # Hide text like a password
+        
+        engine_layout.addWidget(self.api_key_label)
+        engine_layout.addWidget(self.api_key_entry)
+        
+        # Initial visibility based on startup arguments
+        is_gemini = (self.startup_engine == "Gemini API")
+        self.api_key_label.setVisible(is_gemini)
+        self.api_key_entry.setVisible(is_gemini)
+        
+        layout.addLayout(engine_layout)
+
+        # --- Row 4: GPU Selection ---
         gpu_layout = QHBoxLayout()
         self.gpu_combo = QComboBox()
         gpu_layout.addWidget(QLabel("Device (GPU):"))
         gpu_layout.addWidget(self.gpu_combo)
         layout.addLayout(gpu_layout)
 
-        # --- Row 4: Status & Progress ---
+        # --- Row 5: Status & Progress ---
         layout.addSpacing(10)
         self.status_label = QLabel("Status: Ready")
         self.status_label.setObjectName("statusLabel")
@@ -269,7 +303,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.progress_bar)
 
-        # --- Row 5: Image Preview Filmstrip ---
+        # --- Row 6: Image Preview Filmstrip ---
         layout.addWidget(QLabel("Live Preview (Click image to expand):"))
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -305,7 +339,7 @@ class MainWindow(QMainWindow):
         self.scroll_area.setWidget(self.preview_container)
         layout.addWidget(self.scroll_area)
 
-        # --- Row 6: Action Buttons ---
+        # --- Row 7: Action Buttons ---
         button_layout = QHBoxLayout()
         
         self.action_btn = QPushButton("START TRANSLATION")
@@ -405,28 +439,39 @@ class MainWindow(QMainWindow):
         else:
             self.cancel_translation()
 
-    def restart_app(self, target_gpu=None):
+    def restart_app(self, target_gpu=None, target_engine=None):
         self.status_label.setText("Status: Restarting application to clear VRAM...")
         QApplication.processEvents() 
         new_args = []
+        
+        # Strip old arguments
         skip_next = False
         for arg in sys.argv:
             if skip_next:
                 skip_next = False
                 continue
-            if arg == "--gpu":
+            if arg in ["--gpu", "--engine"]:
                 skip_next = True
                 continue
             new_args.append(arg)
             
+        # Append new arguments
         if target_gpu is not None:
             new_args.extend(["--gpu", str(target_gpu)])
+        if target_engine is not None:
+            new_args.extend(["--engine", str(target_engine)])
             
         os.execl(sys.executable, sys.executable, *new_args)
 
     def prepare_and_start_translation(self):
         if not self.selected_images:
             QMessageBox.warning(self, "Error", "Please select at least one image to translate!")
+            return
+
+        # Validate API Key if Gemini is selected
+        selected_engine = self.engine_combo.currentText()
+        if selected_engine == "Gemini API" and not self.api_key_entry.text().strip():
+            QMessageBox.warning(self, "Error", "Please enter a valid Gemini API Key!")
             return
 
         selected_gpu = self.gpu_combo.currentData()
@@ -451,6 +496,8 @@ class MainWindow(QMainWindow):
         self.genre_entry.setEnabled(False)
         self.lang_combo.setEnabled(False)
         self.gpu_combo.setEnabled(False)
+        self.engine_combo.setEnabled(False) # Lock engine combo
+        self.api_key_entry.setEnabled(False) # Lock api key entry
         self.select_images_btn.setEnabled(False)
         self.save_btn.setEnabled(False)
         
@@ -461,9 +508,30 @@ class MainWindow(QMainWindow):
         self.translated_images_cache = []
 
         if self.loaded_models is None:
-            self.load_models_to_gpu(selected_gpu)
+            self.load_models_to_gpu(selected_gpu, selected_engine) # Pass engine here
         else:
             self.run_translation_worker()
+
+    def on_engine_changed(self, new_engine):
+        """Handle UI changes and VRAM clearing when switching engines."""
+        is_gemini = (new_engine == "Gemini API")
+        self.api_key_label.setVisible(is_gemini)
+        self.api_key_entry.setVisible(is_gemini)
+        
+        # If the user switches from Local LLM to Gemini AFTER models are loaded, force a restart to clear VRAM
+        if is_gemini and self.loaded_models is not None and self.loaded_models.get('translator_model') is not None:
+            reply = QMessageBox.question(
+                self, 
+                "Restart Required", 
+                "Switching to Gemini API requires restarting the app to free up the VRAM used by the Local LLM.\n\nRestart now?",
+                QMessageBox.Yes | QMessageBox.No, 
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.restart_app(target_gpu=self.gpu_combo.currentData(), target_engine=new_engine)
+            else:
+                # Revert selection
+                self.engine_combo.setCurrentText("Local LLM")
 
     def clear_preview_area(self):
         """Removes all thumbnails from the preview layout"""
@@ -473,12 +541,13 @@ class MainWindow(QMainWindow):
             if widget is not None:
                 widget.deleteLater()
 
-    def load_models_to_gpu(self, gpu_id):
+    def load_models_to_gpu(self, gpu_id, engine):
         self.pytorch_tainted = True 
         self.action_btn.setEnabled(False)
         self.action_btn.setText("LOADING MODELS... (DO NOT CLOSE)")
         
-        self.loader_worker = ModelLoaderWorker(gpu_id)
+        # Pass both GPU and Engine to the loader
+        self.loader_worker = ModelLoaderWorker(gpu_id, engine) 
         self.loader_worker.progress_updated.connect(self.update_progress)
         self.loader_worker.finished.connect(self.on_models_loaded)
         self.loader_worker.error_occurred.connect(self.on_error)
@@ -500,7 +569,9 @@ class MainWindow(QMainWindow):
             'image_paths': self.selected_images,
             'gpu_id': self.current_loaded_gpu,
             'genre': self.genre_entry.text().strip() or "General Manga",
-            'target_lang': self.lang_combo.currentText().strip() or "Vietnamese"
+            'target_lang': self.lang_combo.currentText().strip() or "Vietnamese",
+            'engine': self.engine_combo.currentText(), # Add engine
+            'api_key': self.api_key_entry.text().strip() # Add API Key
         }
 
         self.worker = AITranslatorWorker(config, self.loaded_models)
@@ -610,4 +681,7 @@ class MainWindow(QMainWindow):
         self.genre_entry.setEnabled(True)
         self.lang_combo.setEnabled(True)
         self.gpu_combo.setEnabled(True)
+        self.select_images_btn.setEnabled(True)
+        self.engine_combo.setEnabled(True)
+        self.api_key_entry.setEnabled(True)
         self.select_images_btn.setEnabled(True)

@@ -28,9 +28,10 @@ class ModelLoaderWorker(QThread):
     finished = Signal(dict)
     error_occurred = Signal(str)
 
-    def __init__(self, gpu_id):
+    def __init__(self, gpu_id, engine):
         super().__init__()
         self.gpu_id = str(gpu_id)
+        self.engine = engine # Store the selected engine
 
     def run(self):
         try:
@@ -47,7 +48,6 @@ class ModelLoaderWorker(QThread):
             self.progress_updated.emit(5, "Initializing PyTorch Environment...")
             
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
             from models.text_segmentation.model import MangaTextSegmenter
             from simple_lama_inpainting import SimpleLama
             from manga_ocr import MangaOcr
@@ -55,18 +55,20 @@ class ModelLoaderWorker(QThread):
 
             yolov8s_model_path = os.path.join(HOME, 'models', 'text-detector', 'comic-text-segmenter.pt').replace('\\', '/')
             ocr_model_path = os.path.join(HOME, 'models', 'text_ocr', 'models', 'manga-ocr-base').replace('\\', '/')
-            translate_model_path = os.path.join(HOME, 'models', 'translate-model', 'models', 'tiger-gemma-9b-v3').replace('\\', '/')
             segment_model_path = os.path.join(HOME, 'models', 'text_segmentation', 'model.pth').replace('\\', '/')
             font_path = os.path.join(HOME, 'assets', 'fonts', 'animeace2_viethoa_reg.ttf').replace('\\', '/')
 
-            # check if all model files exist before proceeding
             check_paths = [
                 (yolov8s_model_path, "YOLOv8 Text Detector"),
                 (ocr_model_path, "Manga OCR (Base Directory)"),
-                (translate_model_path, "Gemma LLM (Tiger Directory)"),
                 (segment_model_path, "Text Segmenter"),
                 (font_path, "Font File")
             ]
+
+            # Only verify and load Local LLM path if it is selected
+            if self.engine == "Local LLM":
+                translate_model_path = os.path.join(HOME, 'models', 'translate-model', 'models', 'tiger-gemma-9b-v3').replace('\\', '/')
+                check_paths.append((translate_model_path, "Gemma LLM (Tiger Directory)"))
 
             for p, name in check_paths:
                 if not os.path.exists(p):
@@ -81,25 +83,33 @@ class ModelLoaderWorker(QThread):
             self.progress_updated.emit(45, "Loading Manga OCR Model...")
             mocr = MangaOcr(pretrained_model_name_or_path=ocr_model_path)
 
-            self.progress_updated.emit(60, "Configuring AI Translation parameters...")
-            compute_dtype = torch.bfloat16 if 'gemma-3-4b' in translate_model_path.lower() else torch.float16
-            translator_tokenizer = AutoTokenizer.from_pretrained(translate_model_path)
+            translator_tokenizer = None
+            translator_model = None
 
-            self.progress_updated.emit(75, "Loading LLM to GPU with 4-bit Quantization...")
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True, 
-                bnb_4bit_quant_type="nf4", 
-                bnb_4bit_compute_dtype=compute_dtype, 
-                bnb_4bit_use_double_quant=True
-            )
-            
-            translator_model = AutoModelForCausalLM.from_pretrained(
-                translate_model_path, 
-                quantization_config=bnb_config, 
-                device_map="auto", 
-                trust_remote_code=False, 
-                dtype=compute_dtype
-            )
+            # --- ENGINE CONDITIONAL LOADING ---
+            if self.engine == "Local LLM":
+                from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+                self.progress_updated.emit(60, "Configuring Local LLM Translation parameters...")
+                compute_dtype = torch.bfloat16 if 'gemma-3-4b' in translate_model_path.lower() else torch.float16
+                translator_tokenizer = AutoTokenizer.from_pretrained(translate_model_path)
+
+                self.progress_updated.emit(75, "Loading LLM to GPU with 4-bit Quantization...")
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True, 
+                    bnb_4bit_quant_type="nf4", 
+                    bnb_4bit_compute_dtype=compute_dtype, 
+                    bnb_4bit_use_double_quant=True
+                )
+                
+                translator_model = AutoModelForCausalLM.from_pretrained(
+                    translate_model_path, 
+                    quantization_config=bnb_config, 
+                    device_map="auto", 
+                    trust_remote_code=False, 
+                    dtype=compute_dtype
+                )
+            else:
+                self.progress_updated.emit(75, "Bypassing Local LLM (Using Gemini API)...")
 
             self.progress_updated.emit(90, "Loading Inpainting Model (Lama)...")
             simple_lama = SimpleLama()
@@ -108,8 +118,8 @@ class ModelLoaderWorker(QThread):
                 'detector': detector,
                 'segmenter': segmenter,
                 'mocr': mocr,
-                'translator_tokenizer': translator_tokenizer,
-                'translator_model': translator_model,
+                'translator_tokenizer': translator_tokenizer, # Will be None if Gemini
+                'translator_model': translator_model,         # Will be None if Gemini
                 'simple_lama': simple_lama,
                 'font_path': font_path
             }
@@ -161,6 +171,11 @@ class AITranslatorWorker(QThread):
             simple_lama = self.models['simple_lama']
             font_path = self.models['font_path']
 
+            if self.config['engine'] == "Gemini API":
+                from google.genai import types
+                from google import genai
+                gemini_client = genai.Client(api_key=self.config['api_key'])
+
             image_paths = self.config['image_paths']
             # sort image paths based on filename to ensure correct page order
             image_paths.sort(key=lambda x: natural_sort_key(os.path.basename(x)))
@@ -209,7 +224,7 @@ class AITranslatorWorker(QThread):
 
                 if self.check_cancel_and_cleanup("Stopped before LLM translation."): return
 
-                self.progress_updated.emit(base_percent + 40, f"[{idx+1}/{total_imgs}] Generating translation using LLM...")
+                self.progress_updated.emit(base_percent + 40, f"[{idx+1}/{total_imgs}] Generating translation using {self.config['engine']}...")
                 system_prompt = get_system_prompt(genre=self.config['genre'], target_language=self.config['target_lang'])
                 current_user_payload = create_user_payload(jp_texts)
 
@@ -218,26 +233,44 @@ class AITranslatorWorker(QThread):
                 else:
                     combined_prompt = f"{system_prompt}\n\n---\n\n{current_user_payload}"
 
-                messages = [{"role": "user", "content": combined_prompt}]
-                
-                input_ids = translator_tokenizer.apply_chat_template(
-                    messages, 
-                    add_generation_prompt=True, 
-                    tokenize=True, 
-                    return_dict=True, 
-                    return_tensors="pt"
-                ).to(translator_model.device)
+                if self.config['engine'] == "Gemini API":
+                    import google.generativeai as genai
+                    genai.configure(api_key=self.config['api_key'])
+                    
+                    response = gemini_client.models.generate_content(
+                        model="gemini-3-flash-preview",
+                        contents=[combined_prompt],
+                        config=types.GenerateContentConfig(
+                            temperature=0.5,     # increase temperature for more diverse output
+                            topP=0.95,
+                        )
+                    )
+                    response_text = response.text.strip()
+                    
+                else:
+                    # ORIGINAL LOCAL LLM LOGIC
+                    messages = [{"role": "user", "content": combined_prompt}]
+                    
+                    input_ids = translator_tokenizer.apply_chat_template(
+                        messages, 
+                        add_generation_prompt=True, 
+                        tokenize=True, 
+                        return_dict=True, 
+                        return_tensors="pt"
+                    ).to(translator_model.device)
 
-                with torch.no_grad():
-                    output_ids = translator_model.generate(**input_ids, max_new_tokens=4048, temperature=0.5, do_sample=True, top_p=0.95)
+                    with torch.no_grad():
+                        output_ids = translator_model.generate(**input_ids, max_new_tokens=4048, temperature=0.5, do_sample=True, top_p=0.95)
 
-                generated_ids = output_ids[0][input_ids["input_ids"].shape[-1]:].cpu()
-                response_text = translator_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+                    generated_ids = output_ids[0][input_ids["input_ids"].shape[-1]:].cpu()
+                    response_text = translator_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+                    
+                    del input_ids, output_ids, generated_ids
+                    
                 translated_texts = parse_json_output(response_text, len(jp_texts))
                 
                 previous_translation_text = response_text
 
-                del input_ids, output_ids, generated_ids
                 torch.cuda.empty_cache()
                 gc.collect()
 

@@ -28,3 +28,4 @@ wandb==0.25.1
 fugashi
 pyperclip
 unidic_lite
+google-genai
