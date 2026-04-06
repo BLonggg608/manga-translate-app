@@ -3,7 +3,7 @@ import os
 import subprocess
 import gc
 import shutil
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+from PySide6.QtWidgets import (QGridLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QLabel, QComboBox, QLineEdit, QFileDialog, 
                                QProgressBar, QMessageBox, QApplication, QScrollArea, QDialog)
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -245,45 +245,57 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.select_images_btn)
         layout.addLayout(input_layout)
 
+        # Create a single Grid Layout to keep Row 2 and Row 3 perfectly aligned
+        grid_layout = QGridLayout()
+
+        # Add a 20px gap between the left components (Genre/API Key) and right components (Language/Engine)
+        grid_layout.setHorizontalSpacing(20)
+
+        # Force Column 1 (the text input fields) to expand and absorb all available horizontal space
+        grid_layout.setColumnStretch(1, 1)
+
         # --- Row 2: Translation Options ---
-        options_layout = QHBoxLayout()
-        options_layout.addWidget(QLabel("Genre:"))
+        # Placed at grid row 0
+        grid_layout.addWidget(QLabel("Genre:"), 0, 0)
+
         self.genre_entry = QLineEdit()
         self.genre_entry.setText("General Manga")
-        options_layout.addWidget(self.genre_entry)
-        options_layout.addSpacing(20) 
-        options_layout.addWidget(QLabel("Language:"))
+        grid_layout.addWidget(self.genre_entry, 0, 1)
+
+        grid_layout.addWidget(QLabel("Language:"), 0, 2)
+
         self.lang_combo = QComboBox()
         self.lang_combo.addItems(["English", "Vietnamese"])
-        options_layout.addWidget(self.lang_combo)
-        layout.addLayout(options_layout)
+        grid_layout.addWidget(self.lang_combo, 0, 3)
+
 
         # --- Row 3: Engine Selection ---
-        engine_layout = QHBoxLayout()
-        engine_layout.addWidget(QLabel("Engine:"))
-        
-        self.engine_combo = QComboBox()
-        self.engine_combo.addItems(["Local LLM", "Gemini API"])
-        self.engine_combo.setCurrentText(self.startup_engine)
-        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
-        engine_layout.addWidget(self.engine_combo)
-        
-        engine_layout.addSpacing(20)
-        
+        # Placed at grid row 1 (perfectly aligned with row 0)
         self.api_key_label = QLabel("API Key:")
         self.api_key_entry = QLineEdit()
         self.api_key_entry.setPlaceholderText("Enter Gemini API Key here...")
         self.api_key_entry.setEchoMode(QLineEdit.Password) # Hide text like a password
-        
-        engine_layout.addWidget(self.api_key_label)
-        engine_layout.addWidget(self.api_key_entry)
-        
-        # Initial visibility based on startup arguments
+
+        grid_layout.addWidget(self.api_key_label, 1, 0)
+        grid_layout.addWidget(self.api_key_entry, 1, 1)
+
+        grid_layout.addWidget(QLabel("Engine:"), 1, 2)
+
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItems(["Local LLM", "Gemini API"])
+        self.engine_combo.setCurrentText(self.startup_engine)
+        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
+        grid_layout.addWidget(self.engine_combo, 1, 3)
+
+
+        # --- API Key Visibility Setup ---
+        # Set initial visibility based on the selected startup engine
         is_gemini = (self.startup_engine == "Gemini API")
         self.api_key_label.setVisible(is_gemini)
         self.api_key_entry.setVisible(is_gemini)
-        
-        layout.addLayout(engine_layout)
+
+        # Add the perfectly aligned grid block to the main layout
+        layout.addLayout(grid_layout)
 
         # --- Row 4: GPU Selection ---
         gpu_layout = QHBoxLayout()

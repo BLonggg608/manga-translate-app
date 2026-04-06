@@ -16,7 +16,7 @@ def get_app_root():
 HOME = get_app_root()
 sys.path.append(HOME) 
 
-# # Ensure the manga-ocr model directory is in the path for imports
+# Ensure the manga-ocr model directory is in the path for imports
 local_manga_ocr_path = os.path.normpath(os.path.join(HOME, 'models', 'text_ocr'))
 if local_manga_ocr_path not in sys.path:
     sys.path.insert(0, local_manga_ocr_path)
@@ -53,13 +53,13 @@ class ModelLoaderWorker(QThread):
             from manga_ocr import MangaOcr
             from ultralytics import YOLO
 
-            yolov8s_model_path = os.path.join(HOME, 'models', 'text-detector', 'comic-text-segmenter.pt').replace('\\', '/')
+            yolov8_model_path = os.path.join(HOME, 'models', 'text-detector', 'comic-text-segmenter.pt').replace('\\', '/')
             ocr_model_path = os.path.join(HOME, 'models', 'text_ocr', 'models', 'manga-ocr-base').replace('\\', '/')
             segment_model_path = os.path.join(HOME, 'models', 'text_segmentation', 'model.pth').replace('\\', '/')
             font_path = os.path.join(HOME, 'assets', 'fonts', 'animeace2_viethoa_reg.ttf').replace('\\', '/')
 
             check_paths = [
-                (yolov8s_model_path, "YOLOv8 Text Detector"),
+                (yolov8_model_path, "YOLOv8 Text Detector"),
                 (ocr_model_path, "Manga OCR (Base Directory)"),
                 (segment_model_path, "Text Segmenter"),
                 (font_path, "Font File")
@@ -75,7 +75,7 @@ class ModelLoaderWorker(QThread):
                     raise FileNotFoundError(f"PATH ERROR: Could not find {name}!\nAttempted path: \n{p}\n\nPlease verify your directory structure in the build folder.")
 
             self.progress_updated.emit(15, "Loading Text Detector (YOLO)...")
-            detector = YOLO(yolov8s_model_path)
+            detector = YOLO(yolov8_model_path)
 
             self.progress_updated.emit(30, "Loading Text Segmenter...")
             segmenter = MangaTextSegmenter(model_path=segment_model_path)
