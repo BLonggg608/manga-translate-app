@@ -4,7 +4,11 @@ This repository contains the source code for an automated manga translationappli
 
 ## Video Demo
 <div align="center">
-  <video src="https://github.com/BLonggg608/manga-translate-app/blob/main/doc/videos/demo.mp4" width="80%" controls autoplay loop muted playsinline></video>
+  
+
+https://github.com/user-attachments/assets/366e77da-f53f-4f90-ba3f-c9180a43f8d7
+
+
   <br>
   <i>In-app translation process: from raw Japanese scan to fully translated page.</i>
 </div>
