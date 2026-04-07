@@ -203,7 +203,7 @@ class AITranslatorWorker(QThread):
 
                 image = Image.open(img_path).convert("RGB")
                 text_mask_image = segmenter.segment(image)
-                boxes = detector.predict(image, conf=0.1, imgsz=1024)[0].boxes.xyxy.cpu().numpy().tolist()
+                boxes = detector.predict(image, imgsz=1024)[0].boxes.xyxy.cpu().numpy().tolist()
                 text_mask_image = filter_mask_by_boxes(text_mask_image, boxes)
 
                 self.progress_updated.emit(base_percent + 10, f"[{idx+1}/{total_imgs}] Reading Japanese text (OCR)...")
