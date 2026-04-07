@@ -17,7 +17,7 @@ This repository contains the source code for an automated manga translationappli
 <div align="center">
   
 
-https://github.com/user-attachments/assets/366e77da-f53f-4f90-ba3f-c9180a43f8d7
+https://github.com/user-attachments/assets/caa2bb86-2cdd-4ed0-9dca-efe71ffb9723
 
 
   <br>
